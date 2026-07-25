@@ -120,9 +120,6 @@ Patcher generation accepts imported modified-side SSF data through `--modified-f
 
 Stock `[SSFList]` patch generation is limited to KotOR SSF V1.1. NWN/NWN2 SSFs retain full native and interchange editing support, but their direct sound ResRefs are not representable by the KotOR patcher handler.
 
-## Shared game directories
-
-The wxWidgets application exposes **File > Open Game Directory**. Its submenu lists every saved game install from the shared `neoshared` settings store; selecting an entry opens that install root in the system file manager. **Manage Game Directories...** adds, renames, rescans, activates, or removes shared entries, and changes are visible in every Neo tool.
 
 ## Continuous integration
 
