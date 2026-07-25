@@ -416,7 +416,10 @@ private:
         file->Append(ID_CloseOtherTabs, "Close &Other Tabs");
         file->Append(ID_NextTab, "Next Tab\tCtrl-Tab");
         file->Append(ID_PreviousTab, "Previous Tab\tCtrl-Shift-Tab");
-        gameDirectoryMenu_ = neogames::appendOpenGameDirectoryMenu(*this, *file);
+        gameDirectoryMenu_ = neogames::appendOpenGameDirectoryMenu(
+            *this, *file, [this](const std::filesystem::path& directory) {
+                chooseAndOpenSsf(directory);
+            });
         file->AppendSeparator();
         file->Append(wxID_EXIT, "E&xit");
 
@@ -613,6 +616,7 @@ private:
         auto* gridBox = new wxStaticBoxSizer(wxVERTICAL, panel, "Soundset entries");
         grid_ = new wxGrid(panel, ID_Grid);
         grid_->CreateGrid(0, kGridColumns);
+        wxui::configureStableGridRendering(*grid_);
         grid_->SetColLabelValue(0, "#");
         grid_->SetColLabelValue(1, "Slot");
         grid_->SetColLabelValue(2, "StrRef");
@@ -627,7 +631,6 @@ private:
         grid_->SetColSize(5, 430);
         grid_->SetRowLabelSize(0);
         grid_->EnableEditing(false);
-        grid_->EnableDragGridSize(false);
         grid_->SetSelectionMode(wxGrid::wxGridSelectRows);
         gridBox->Add(grid_, 1, wxEXPAND | wxALL, 6);
         root->Add(gridBox, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
@@ -1295,14 +1298,18 @@ private:
         }
     }
 
-    void onOpenSsf(wxCommandEvent&) {
+    void chooseAndOpenSsf(const std::filesystem::path& initialDirectory = {}) {
         try {
-            const auto file = wxui::chooseOpenFile(this, "Open SSF", kSsfWildcard);
+            const auto file = wxui::chooseOpenFile(this, "Open SSF", kSsfWildcard, initialDirectory);
             if (!file) return;
             openSsfPath(*file);
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
+    }
+
+    void onOpenSsf(wxCommandEvent&) {
+        chooseAndOpenSsf();
     }
 
     void onNewSsf(wxCommandEvent&) {
