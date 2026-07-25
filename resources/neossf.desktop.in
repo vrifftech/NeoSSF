@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=NeoSSF
+Comment=SSF soundset editor
+Exec=NeoSSF %f
+Icon=neossf
+Terminal=false
+Categories=Utility;Development;
