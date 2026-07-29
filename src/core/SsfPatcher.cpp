@@ -18,6 +18,8 @@
 namespace neossf {
 namespace {
 
+constexpr std::size_t kCrossCompatibleSsfSlotCount = 28u;
+
 std::string lowerAscii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -77,11 +79,10 @@ bool talkStringsEquivalentForPatcher(const TalkString& left, const TalkString& r
 }
 
 std::string patcherSlotLabel(std::size_t zeroBasedSlot) {
-    if (zeroBasedSlot >= kSoundsetEntryCount) {
-        throw std::out_of_range("TSLPatcher SSF slot index is out of bounds.");
+    if (zeroBasedSlot >= kCrossCompatibleSsfSlotCount) {
+        throw std::out_of_range(
+            "Only the first 28 named KotOR SSF slots are shared by original TSLPatcher and HoloPatcher 1.7.");
     }
-    // These display labels intentionally match the exact keys accepted by the
-    // original TSLPatcher Bioware::SSF module, including Unknown (29)-(40).
     return soundsetDisplayLabel(zeroBasedSlot, kSoundsetEntryCount);
 }
 
@@ -193,7 +194,7 @@ void addBaselineSsfAsset(SsfTlkPatcherResult& result,
             "A clean baseline SSF is required for a complete SSF patch package.");
         return;
     }
-    result.project.assets.push_back({baselineSsfAsset, result.options.patchFilename});
+    result.project.assets.push_back({baselineSsfAsset, result.options.patchFilename, {}});
     rememberProtectedPath(result, baselineSsfAsset);
 }
 
@@ -259,6 +260,14 @@ SsfTlkPatcherResult diffSsfAndTlkForPatcher(
             // token. The clean SSF can coincidentally contain the same numeric
             // value, but the user's final installed StrRef is assigned at run time.
             if (before == after && dynamic == appendedTokenByStrRef.end()) continue;
+
+            if (slot >= kCrossCompatibleSsfSlotCount) {
+                result.project.unsupported.push_back(
+                    "A package compatible with both original TSLPatcher and HoloPatcher 1.7 can modify only "
+                    "the first 28 named KotOR SSF slots; changed slot " + std::to_string(slot + 1u) +
+                    " must be distributed as a complete SSF file.");
+                continue;
+            }
 
             if (!result.hasSsfChanges()) {
                 result.project.add("SSFList", "File0", result.options.patchFilename);
