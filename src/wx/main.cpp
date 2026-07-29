@@ -184,8 +184,9 @@ public:
             root->Add(buttons, 0, wxEXPAND | wxALL, 10);
         }
         SetSizer(root);
-        SetMinSize(FromDIP(wxSize(460, 280)));
-        SetInitialSize(FromDIP(wxSize(560, 380)));
+        wxui::configureResponsiveWindow(*this, wxSize(560, 380), wxSize(420, 260));
+        CentreOnParent();
+        wxui::constrainWindowToDisplay(*this);
     }
 
     std::string entryText() const { return wxui::toStd(text_->GetValue()); }
@@ -211,8 +212,7 @@ public:
         applyDarkMode();
         createDocumentTab(false);
         tryLoadCachedTlk();
-        SetMinSize(FromDIP(wxSize(760, 520)));
-        SetInitialSize(FromDIP(wxSize(980, 700)));
+        wxui::configureResponsiveWindow(*this, wxSize(980, 700), wxSize(620, 420));
         settings_.restoreWindowPlacement(*this);
         refreshAll();
     }
