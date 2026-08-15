@@ -63,9 +63,15 @@ SsfTlkPatcherResult diffSsfAndTlkForPatcher(
     const SsfTlkPatcherOptions& options = {},
     const std::filesystem::path& baselineSsfAsset = {});
 
+[[deprecated("Use writeSsfTlkPatcherPackageToIni() with the exact selected installer INI path")]]
 void writeSsfTlkPatcherPackage(
     SsfTlkPatcherResult& result,
     const std::filesystem::path& outputDirectory,
+    bool allowUnsupported = false);
+
+void writeSsfTlkPatcherPackageToIni(
+    SsfTlkPatcherResult& result,
+    const std::filesystem::path& outputIni,
     bool allowUnsupported = false);
 
 } // namespace neossf

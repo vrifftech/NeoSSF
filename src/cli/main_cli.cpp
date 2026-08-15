@@ -28,8 +28,8 @@ void usage() {
               << "  neossf-cli --search-ssf <file.ssf> <term>\n"
               << "  neossf-cli --export-ssf <file.ssf> <csv|tsv|xml|json> <output> [filter-term]\n"
               << "  neossf-cli --import-ssf <input-table> <csv|tsv|xml|json> <output.ssf>\n"
-              << "  neossf-cli --diff-tslpatcher <original.ssf> <modified-input> <output-dir|fragment.ini> [--modified-format csv|tsv|xml|json|ssf|kotor|native|auto] [--package|--fragment] [--filename name] [--original-tlk clean.tlk --modified-tlk edited.tlk] [--allow-unsupported]\n"
-              << "  neossf-cli --diff-tslpatcher-import <original.ssf> <modified-input> <csv|tsv|xml|json|ssf|kotor|native|auto> <output-dir|fragment.ini> [--package|--fragment] [--filename name] [--original-tlk clean.tlk --modified-tlk edited.tlk] [--allow-unsupported]\n"
+              << "  neossf-cli --diff-tslpatcher <original.ssf> <modified-input> <output-dir|fragment.ini> [--modified-format csv|tsv|xml|json|ssf|kotor|native|auto] [--package|--fragment] [--filename name] [--ini installer.ini] [--original-tlk clean.tlk --modified-tlk edited.tlk] [--allow-unsupported]\n"
+              << "  neossf-cli --diff-tslpatcher-import <original.ssf> <modified-input> <csv|tsv|xml|json|ssf|kotor|native|auto> <output-dir|fragment.ini> [--package|--fragment] [--filename name] [--ini installer.ini] [--original-tlk clean.tlk --modified-tlk edited.tlk] [--allow-unsupported]\n"
               << "    TLK pairs require package output and generate append.tlk plus dynamic StrRefN SSF assignments.\n"
               << "  neossf-cli --roundtrip-ssf <input.ssf> <output.ssf> [kotor|nwn|nwn2]\n"
               << "  neossf-cli --ssf-info <file.ssf>\n"
@@ -71,6 +71,7 @@ struct PatchOutputOptions {
     std::string modifiedFormat = "auto";
     std::filesystem::path originalTlk;
     std::filesystem::path modifiedTlk;
+    std::filesystem::path iniFilename = "changes.ini";
 
     bool hasTlkPair() const noexcept { return !originalTlk.empty() && !modifiedTlk.empty(); }
 };
@@ -85,6 +86,9 @@ PatchOutputOptions parsePatchOutputOptions(int argc, char** argv, int begin, con
         else if (arg == "--filename") {
             if (i + 1 >= argc) throw std::runtime_error("--filename requires a value.");
             options.patchFilename = argv[++i];
+        } else if (arg == "--ini") {
+            if (i + 1 >= argc) throw std::runtime_error("--ini requires a filename.");
+            options.iniFilename = argv[++i];
         } else if (arg == "--allow-unsupported") options.allowUnsupported = true;
         else if (arg == "--original-tlk") {
             if (i + 1 >= argc) throw std::runtime_error("--original-tlk requires a value.");
@@ -107,8 +111,14 @@ PatchOutputOptions parsePatchOutputOptions(int argc, char** argv, int begin, con
 void writePatchOutput(const neotsl::PatchProject& project, const std::filesystem::path& output, const PatchOutputOptions& options) {
     if (!options.allowUnsupported) neotsl::throwIfUnsupported(project);
     else neotsl::printReport(project);
-    if (options.package) neotsl::writePackage(project, output, true);
-    else neotsl::writeFragment(project, output);
+    if (options.package) {
+        const std::filesystem::path iniPath = options.iniFilename.is_absolute()
+            ? options.iniFilename
+            : output / options.iniFilename;
+        neotsl::writePackageToIni(project, iniPath, true);
+    } else {
+        neotsl::writeFragment(project, output);
+    }
 }
 
 void validateTlkPatchOptions(const PatchOutputOptions& options) {
@@ -139,7 +149,10 @@ void writeCombinedPatchOutput(const AppModel& original,
             patcherOptions,
             options.package ? original.ssfFile() : std::filesystem::path{});
         if (options.package) {
-            writeSsfTlkPatcherPackage(result, output, options.allowUnsupported);
+            const std::filesystem::path iniPath = options.iniFilename.is_absolute()
+                ? options.iniFilename
+                : output / options.iniFilename;
+            writeSsfTlkPatcherPackageToIni(result, iniPath, options.allowUnsupported);
         } else {
             writePatchOutput(result.project, output, options);
         }
@@ -159,7 +172,10 @@ void writeCombinedPatchOutput(const AppModel& original,
         modifiedTlk,
         patcherOptions,
         original.ssfFile());
-    writeSsfTlkPatcherPackage(result, output, options.allowUnsupported);
+    const std::filesystem::path iniPath = options.iniFilename.is_absolute()
+        ? options.iniFilename
+        : output / options.iniFilename;
+    writeSsfTlkPatcherPackageToIni(result, iniPath, options.allowUnsupported);
     std::cout << "Generated complete TSLPatcher/HoloPatcher package: " << output.string() << '\n'
               << "  Changed SSF slots: " << result.changedSsfSlots << '\n'
               << "  Dynamic SSF StrRef assignments: " << result.dynamicSsfAssignments << '\n'

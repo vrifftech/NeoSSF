@@ -4,6 +4,7 @@
 #include "NeoGameDirectoryMenu.hpp"
 #include "NeoDocumentTabs.hpp"
 #include "NeoSettings.hpp"
+#include "NeoPatcherExport.hpp"
 #include "NeoViewState.hpp"
 #include "neossf_icon.xpm"
 #include "TabularData.hpp"
@@ -34,6 +35,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+static_assert(wxui::kPatcherExportUiApiVersion >= 3u,
+              "NeoSSF requires the exact-INI/Fragment patch-export UI from the current neoshared checkout.");
 
 namespace {
 
@@ -435,7 +439,7 @@ private:
         exportMenu->Append(ID_ExportXml, "Export as &XML...");
         exportMenu->Append(ID_ExportJson, "Export as &JSON...");
         exportMenu->AppendSeparator();
-        exportMenu->Append(ID_ExportPatcherPackage, "Export TSLPatcher/HoloPatcher SSF + TLK &Package...");
+        exportMenu->Append(ID_ExportPatcherPackage, "Export TSLPatcher/HoloPatcher SSF + TLK Instructions...");
 
         auto* edit = new wxMenu;
         edit->Append(ID_CopyCells, "&Copy Cells	Ctrl-C");
@@ -1113,13 +1117,13 @@ private:
                 defaultPatchName);
             if (!patchName) return;
 
-            const auto outputDirectory = wxui::chooseDirectory(
-                this,
-                "Choose the tslpatchdata output folder");
-            if (!outputDirectory) return;
+            const auto output = wxui::choosePatcherOutput(this);
+            if (!output) return;
+            const bool writeToIni = output->writesToIni();
 
             SsfTlkPatcherOptions options;
             options.patchFilename = *patchName;
+            options.copyBaselineAsset = writeToIni;
             options.modifiedTlkPath = model().tlkLoaded()
                 ? model().tlkFile()
                 : std::filesystem::path{};
@@ -1146,34 +1150,25 @@ private:
                 return;
             }
 
-            std::vector<std::filesystem::path> generatedFiles{*outputDirectory / "changes.ini"};
-            if (result.hasSsfChanges()) {
-                generatedFiles.push_back(*outputDirectory / result.options.patchFilename);
-            }
-            if (result.hasAppendTable()) {
-                generatedFiles.push_back(*outputDirectory / result.options.appendFilename);
-            }
-
-            std::vector<std::string> existingNames;
-            for (const auto& generatedFile : generatedFiles) {
-                std::error_code ec;
-                if (std::filesystem::exists(generatedFile, ec) && !ec) {
-                    existingNames.push_back(generatedFile.filename().string());
-                }
-            }
-            if (!existingNames.empty()) {
-                std::ostringstream message;
-                message << "The selected folder already contains generated package files:\n\n";
-                for (const auto& name : existingNames) message << "  " << name << '\n';
-                message << "\nOverwrite these files?";
-                if (!wxui::confirm(this, "Overwrite SSF/TLK Patcher Package", message.str())) return;
+            if (!writeToIni) {
+                std::vector<std::string> companionFiles;
+                if (result.hasSsfChanges()) companionFiles.push_back(*patchName);
+                if (result.hasAppendTable()) companionFiles.push_back(result.options.appendFilename);
+                wxui::showIniFragmentDialog(
+                    this,
+                    "SSF + TLK Patcher INI Fragment",
+                    result.project,
+                    companionFiles);
+                return;
             }
 
-            writeSsfTlkPatcherPackage(result, *outputDirectory);
+            const bool mergedExisting = std::filesystem::exists(output->iniPath);
+            writeSsfTlkPatcherPackageToIni(result, output->iniPath);
 
             std::ostringstream summary;
-            summary << "Wrote a complete TSLPatcher/HoloPatcher package to:\n"
-                    << outputDirectory->string() << "\n\n"
+            summary << (mergedExisting ? "Merged the generated SSF/TLK instructions into:\n"
+                                       : "Created the installer INI:\n")
+                    << neosettings::pathToUtf8(output->iniPath) << "\n\n"
                     << "Changed SSF slots: " << result.changedSsfSlots << '\n'
                     << "Dynamic SSF StrRef assignments: " << result.dynamicSsfAssignments << '\n'
                     << "Fixed SSF StrRef assignments: " << result.fixedSsfAssignments << '\n'
