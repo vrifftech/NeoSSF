@@ -7,6 +7,7 @@
 #include <chrono>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -27,6 +28,97 @@ namespace {
 
 constexpr const char* kManagedTempMarker = ".neossf-save-";
 constexpr const char* kManagedTempSentinel = ".neossf-managed-temp";
+
+template <typename Integer>
+std::string encodeIntegerDecimal(Integer value) {
+    static_assert(std::numeric_limits<Integer>::is_integer,
+                  "NeoSSF save snapshots require an integral file clock representation.");
+
+    const bool negative = [] (Integer candidate) {
+        if constexpr (std::numeric_limits<Integer>::is_signed) {
+            return candidate < 0;
+        }
+        return false;
+    }(value);
+
+    std::string encoded;
+    do {
+        const Integer quotient = value / static_cast<Integer>(10);
+        Integer remainder = value % static_cast<Integer>(10);
+        int digit = static_cast<int>(remainder);
+        if (digit < 0) {
+            digit = -digit;
+        }
+        encoded.push_back(static_cast<char>('0' + digit));
+        value = quotient;
+    } while (value != 0);
+
+    if (negative) {
+        encoded.push_back('-');
+    }
+    std::reverse(encoded.begin(), encoded.end());
+    return encoded;
+}
+
+template <typename Integer>
+Integer decodeIntegerDecimal(const std::string& encoded) {
+    static_assert(std::numeric_limits<Integer>::is_integer,
+                  "NeoSSF save snapshots require an integral file clock representation.");
+
+    if (encoded.empty()) {
+        throw std::runtime_error("Saved file timestamp is empty.");
+    }
+
+    std::size_t offset = 0;
+    bool negative = false;
+    if (encoded.front() == '-') {
+        if constexpr (!std::numeric_limits<Integer>::is_signed) {
+            throw std::runtime_error("Negative saved file timestamp is not representable by this platform.");
+        }
+        negative = true;
+        offset = 1;
+    } else if (encoded.front() == '+') {
+        offset = 1;
+    }
+    if (offset == encoded.size()) {
+        throw std::runtime_error("Saved file timestamp is malformed.");
+    }
+
+    Integer value = 0;
+    for (; offset < encoded.size(); ++offset) {
+        const unsigned char character = static_cast<unsigned char>(encoded[offset]);
+        if (character < static_cast<unsigned char>('0') ||
+            character > static_cast<unsigned char>('9')) {
+            throw std::runtime_error("Saved file timestamp is malformed.");
+        }
+        const Integer digit = static_cast<Integer>(character - static_cast<unsigned char>('0'));
+
+        if (negative) {
+            const Integer minimum = std::numeric_limits<Integer>::min();
+            if (value < (minimum + digit) / static_cast<Integer>(10)) {
+                throw std::runtime_error("Saved file timestamp is not representable by this platform.");
+            }
+            value = value * static_cast<Integer>(10) - digit;
+        } else {
+            const Integer maximum = std::numeric_limits<Integer>::max();
+            if (value > (maximum - digit) / static_cast<Integer>(10)) {
+                throw std::runtime_error("Saved file timestamp is not representable by this platform.");
+            }
+            value = value * static_cast<Integer>(10) + digit;
+        }
+    }
+    return value;
+}
+
+std::string encodeFileTimeTicks(const std::filesystem::file_time_type& value) {
+    return encodeIntegerDecimal(value.time_since_epoch().count());
+}
+
+std::filesystem::file_time_type decodeFileTimeTicks(const std::string& encoded) {
+    using Duration = std::filesystem::file_time_type::duration;
+    using Rep = Duration::rep;
+    return std::filesystem::file_time_type(Duration(decodeIntegerDecimal<Rep>(encoded)));
+}
 
 bool isManagedTemporaryDirectory(const std::filesystem::path& directory) {
     if (directory.empty()) {
@@ -292,10 +384,10 @@ bool iequals(const std::string& lhs, const std::string& rhs) {
 }
 
 void writeSaveSnapshotSentinel(std::ostream& sentinel, const SaveTargetSnapshot& target) {
-    const auto ticks = target.hasLastWriteTime
-        ? target.lastWriteTime.time_since_epoch().count()
-        : std::filesystem::file_time_type::duration::rep{};
-    sentinel << "NEOSSF_SAVE_SNAPSHOT_V1\n"
+    const std::string ticks = target.hasLastWriteTime
+        ? encodeFileTimeTicks(target.lastWriteTime)
+        : std::string{"0"};
+    sentinel << "NEOSSF_SAVE_SNAPSHOT_V3\n"
              << std::quoted(target.resolvedTarget.string()) << '\n'
              << (target.existed ? 1 : 0) << ' '
              << target.size << ' '
@@ -321,7 +413,7 @@ SaveTargetSnapshot readSaveSnapshotSentinel(const std::filesystem::path& tempora
 
     std::string magic;
     std::getline(sentinel, magic);
-    if (magic != "NEOSSF_SAVE_SNAPSHOT_V1") {
+    if (magic != "NEOSSF_SAVE_SNAPSHOT_V3") {
         throw std::runtime_error("Managed temporary save sentinel is missing snapshot metadata for \"" + temporary.string() + "\".");
     }
 
@@ -330,7 +422,7 @@ SaveTargetSnapshot readSaveSnapshotSentinel(const std::filesystem::path& tempora
     int hasLastWriteTime = 0;
     int hasContentHash = 0;
     std::uintmax_t size = 0;
-    std::filesystem::file_time_type::duration::rep ticks{};
+    std::string ticks;
     std::uint64_t contentHash = 0;
     std::string identity;
 
@@ -347,7 +439,7 @@ SaveTargetSnapshot readSaveSnapshotSentinel(const std::filesystem::path& tempora
     snapshot.size = size;
     snapshot.hasLastWriteTime = hasLastWriteTime != 0;
     if (snapshot.hasLastWriteTime) {
-        snapshot.lastWriteTime = std::filesystem::file_time_type(std::filesystem::file_time_type::duration(ticks));
+        snapshot.lastWriteTime = decodeFileTimeTicks(ticks);
     }
     snapshot.hasContentHash = hasContentHash != 0;
     snapshot.contentHash = contentHash;
