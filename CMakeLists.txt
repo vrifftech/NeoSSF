@@ -5,7 +5,6 @@ if(POLICY CMP0091)
 endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
 
-project(NeoSSFCpp VERSION 1.1.0 DESCRIPTION "C++17/wxWidgets SSF soundset editor" LANGUAGES CXX)
 set(NEOSHARED_ROOT "" CACHE PATH
     "Path to the neoshared source repository; defaults to ../neoshared")
 
@@ -31,6 +30,14 @@ if(NOT EXISTS "${NEOSHARED_ROOT}/CMakeLists.txt")
         "Clone the neoshared repository beside this repository, or configure "
         "with -DNEOSHARED_ROOT=/path/to/neoshared.")
 endif()
+
+include("${NEOSHARED_ROOT}/cmake/NeoVersion.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoMacOSBundle.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoWasm.cmake")
+neo_read_version_header(NEOSSF_VERSION
+    "${CMAKE_CURRENT_LIST_DIR}/src/core/Version.hpp"
+    NEOSSF_VERSION_STRING)
+project(NeoSSFCpp VERSION ${NEOSSF_VERSION} DESCRIPTION "C++17/wxWidgets SSF soundset editor" LANGUAGES CXX)
 
 if(MSVC)
     foreach(_neo_runtime_flag_var IN ITEMS
@@ -169,7 +176,12 @@ if(NEOSSF_BUILD_WX_GUI)
     if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
         set(NEOSSF_WX_SOURCES src/wx/main.cpp)
         if(WIN32)
-            list(APPEND NEOSSF_WX_SOURCES resources/neossf.rc)
+            neo_configure_windows_version_resource(
+                NEOSSF_WX_SOURCES_RC
+                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.rc.in"
+                "neossf.rc"
+                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.ico")
+            list(APPEND NEOSSF_WX_SOURCES "${NEOSSF_WX_SOURCES_RC}")
         endif()
 
         if(WIN32)
@@ -179,6 +191,16 @@ if(NEOSSF_BUILD_WX_GUI)
         else()
             add_executable(NeoSSF ${NEOSSF_WX_SOURCES})
         endif()
+        neo_configure_macos_bundle(NeoSSF
+            NAME "NeoSSF"
+            IDENTIFIER "com.vrifftech.neossf"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.icns"
+        )
+        neo_configure_wasm_target(NeoSSF
+            NAME "NeoSSF"
+            SLUG "neossf"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.svg"
+        )
         target_link_libraries(NeoSSF PRIVATE neossf_core)
         target_include_directories(NeoSSF PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
         target_link_libraries(NeoSSF PRIVATE neoshared::wx)

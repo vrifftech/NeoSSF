@@ -1,5 +1,6 @@
 #include "core/AppModel.hpp"
 #include "core/CoreTypes.hpp"
+#include "core/Version.hpp"
 #include "wx_ui.hpp"
 #include "NeoGameDirectoryMenu.hpp"
 #include "NeoDocumentTabs.hpp"
@@ -204,7 +205,7 @@ private:
 class NeoSSFFrame final : public wxFrame {
 public:
     NeoSSFFrame()
-        : wxFrame(nullptr, wxID_ANY, "NeoSSF v1.1.0 (SSF file editor)", wxDefaultPosition, wxDefaultSize) {
+        : wxFrame(nullptr, wxID_ANY, wxui::toWx(std::string("NeoSSF v") + kVersion + " (SSF file editor)"), wxDefaultPosition, wxDefaultSize) {
         setApplicationIcon();
         buildMenus();
         buildMainWindow();
@@ -516,7 +517,7 @@ private:
         Bind(wxEVT_MENU, &NeoSSFFrame::onResetFontScale, this, ID_FontReset);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) { Close(); }, wxID_EXIT);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-            wxui::showMessage(this, "About NeoSSF", "NeoSSF v1.1.0\nNative wxWidgets soundset editor\n\nA special thanks to everyone in the KOTOR modding community that has contributed their work, knowledge, and creativity to making tools, mods, and guides over the last 20+ years");
+            wxui::showMessage(this, "About NeoSSF", std::string("NeoSSF v") + kVersion + "\nNative wxWidgets soundset editor\n\nA special thanks to everyone in the KOTOR modding community that has contributed their work, knowledge, and creativity to making tools, mods, and guides over the last 20+ years");
         }, wxID_ABOUT);
         Bind(wxEVT_CLOSE_WINDOW, &NeoSSFFrame::onClose, this);
     }
@@ -708,18 +709,18 @@ private:
     }
 
     bool saveModifiedTlkIfNeeded() {
-        if (!model().tlkModified()) {
-            return true;
-        }
+        if (!model().tlkModified()) return true;
         if (!wxui::confirm(this, "Save TLK", "TLK data was modified. Save dialog.tlk before saving the SSF?")) {
             return false;
         }
         std::filesystem::path target = model().tlkFile();
         if (target.empty()) {
-            const auto chosen = wxui::chooseSaveFile(this, "Save dialog.tlk", kTlkWildcard, "dialog.tlk");
-            if (!chosen) {
-                return false;
-            }
+            const auto chosen = wxui::chooseSaveFile(
+                this,
+                "Save dialog.tlk",
+                kTlkWildcard,
+                "dialog.tlk");
+            if (!chosen) return false;
             target = *chosen;
         }
         model().saveTlk(target);
@@ -1048,16 +1049,14 @@ private:
         event.Skip();
     }
 
-    void onImport(neotabular::Format format) {
+    void importFromPath(neotabular::Format format, const std::filesystem::path& file) {
         try {
-            const auto file = wxui::chooseOpenFile(this, "Import " + neotabular::formatName(format), tableWildcardForFormat(format));
-            if (!file) return;
             if (format == neotabular::Format::Xml) {
-                model().importXml(readTextFile(*file));
+                model().importXml(readTextFile(file));
             } else if (format == neotabular::Format::Json) {
-                model().importXml(ssfJsonToXml(readTextFile(*file)));
+                model().importXml(ssfJsonToXml(readTextFile(file)));
             } else {
-                model().importSsfTable(neotabular::readTable(*file, format));
+                model().importSsfTable(neotabular::readTable(file, format));
             }
             viewState().resetForNewDocument();
             if (filterText_) filterText_->ChangeValue("");
@@ -1066,6 +1065,39 @@ private:
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
+    }
+
+    void onImport(neotabular::Format format) {
+#if defined(__EMSCRIPTEN__)
+        if (!hasActiveDocument()) return;
+        wxWindow* const targetPage = activeDocument().tabPage;
+        wxui::requestOpenFile(
+            this,
+            "Import " + neotabular::formatName(format),
+            tableWildcardForFormat(format),
+            [this, targetPage, format](std::optional<std::filesystem::path> file) {
+                if (!file || IsBeingDeleted()) return;
+                if (!hasActiveDocument() || activeDocument().tabPage != targetPage) {
+                    wxui::showMessage(
+                        this,
+                        "Import Cancelled",
+                        "The active document changed while the import picker was open. Start the import again from the intended tab.");
+                    return;
+                }
+                importFromPath(format, *file);
+            });
+#else
+        try {
+            const auto file = wxui::chooseOpenFile(
+                this,
+                "Import " + neotabular::formatName(format),
+                tableWildcardForFormat(format));
+            if (!file) return;
+            importFromPath(format, *file);
+        } catch (const std::exception& ex) {
+            wxui::showError(this, ex);
+        }
+#endif
     }
 
     void onExport(neotabular::Format format) {
@@ -1089,7 +1121,7 @@ private:
         }
     }
 
-    void onExportPatcherPackage(wxCommandEvent&) {
+    void exportPatcherPackageFromOriginal(const std::filesystem::path& originalSsfPath) {
         try {
             if (!hasActiveDocument()) {
                 throw std::runtime_error("Open or create an SSF document first.");
@@ -1100,16 +1132,10 @@ private:
                     "NWN and NWN2 SSFs store direct sound ResRefs and require whole-file distribution.");
             }
 
-            const auto originalSsfPath = wxui::chooseOpenFile(
-                this,
-                "Select the clean original SSF used as the comparison baseline",
-                kSsfWildcard);
-            if (!originalSsfPath) return;
-
             AppModel originalSsf;
-            originalSsf.loadSsf(*originalSsfPath);
+            originalSsf.loadSsf(originalSsfPath);
 
-            const std::string defaultPatchName = originalSsfPath->filename().string();
+            const std::string defaultPatchName = originalSsfPath.filename().string();
             const auto patchName = wxui::promptText(
                 this,
                 "SSF Target Filename",
@@ -1139,7 +1165,7 @@ private:
                 activeTlk,
                 baselineTlkCount,
                 options,
-                *originalSsfPath);
+                originalSsfPath);
             neotsl::throwIfUnsupported(result.project);
 
             if (!result.hasPatchableChanges()) {
@@ -1181,6 +1207,46 @@ private:
             summary << "\n\nExisting TLK-row edits are not exported by NeoSSF; use NeoTLK's "
                        "HoloPatcher package export for those replacements.";
             wxui::showMessage(this, "Patcher Package Generated", summary.str());
+        } catch (const std::exception& ex) {
+            wxui::showError(this, ex);
+        }
+    }
+
+    void onExportPatcherPackage(wxCommandEvent&) {
+        try {
+            if (!hasActiveDocument()) {
+                throw std::runtime_error("Open or create an SSF document first.");
+            }
+            if (model().ssfFormat() != SSFFormat::KotOR_V11) {
+                throw std::runtime_error(
+                    "TSLPatcher/HoloPatcher SSFList output is available only for KotOR SSF V1.1 files. "
+                    "NWN and NWN2 SSFs store direct sound ResRefs and require whole-file distribution.");
+            }
+#if defined(__EMSCRIPTEN__)
+            wxWindow* const targetPage = activeDocument().tabPage;
+            wxui::requestOpenFile(
+                this,
+                "Select the clean original SSF used as the comparison baseline",
+                kSsfWildcard,
+                [this, targetPage](std::optional<std::filesystem::path> originalSsfPath) {
+                    if (!originalSsfPath || IsBeingDeleted()) return;
+                    if (!hasActiveDocument() || activeDocument().tabPage != targetPage) {
+                        wxui::showMessage(
+                            this,
+                            "Patcher Export Cancelled",
+                            "The active document changed while the baseline picker was open. Start the export again from the intended tab.");
+                        return;
+                    }
+                    exportPatcherPackageFromOriginal(*originalSsfPath);
+                });
+#else
+            const auto originalSsfPath = wxui::chooseOpenFile(
+                this,
+                "Select the clean original SSF used as the comparison baseline",
+                kSsfWildcard);
+            if (!originalSsfPath) return;
+            exportPatcherPackageFromOriginal(*originalSsfPath);
+#endif
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
@@ -1280,12 +1346,10 @@ private:
         }
     }
 
-    void onLoadTlk(wxCommandEvent&) {
+    void loadTlkFromPath(const std::filesystem::path& file) {
         try {
-            const auto file = wxui::chooseOpenFile(this, "Load optional dialog.tlk for preview text", kTlkWildcard);
-            if (!file) return;
-            model().loadTlk(*file);
-            writeCachedTlkPath(*file);
+            model().loadTlk(file);
+            writeCachedTlkPath(file);
             tlkAutoLoadWarning().clear();
             refreshAll();
         } catch (const std::exception& ex) {
@@ -1293,7 +1357,51 @@ private:
         }
     }
 
+    void onLoadTlk(wxCommandEvent&) {
+#if defined(__EMSCRIPTEN__)
+        if (!hasActiveDocument()) return;
+        wxWindow* const targetPage = activeDocument().tabPage;
+        wxui::requestOpenFile(
+            this,
+            "Load optional dialog.tlk for preview text",
+            kTlkWildcard,
+            [this, targetPage](std::optional<std::filesystem::path> file) {
+                if (!file || IsBeingDeleted()) return;
+                if (!hasActiveDocument() || activeDocument().tabPage != targetPage) {
+                    wxui::showMessage(
+                        this,
+                        "TLK Load Cancelled",
+                        "The active document changed while the TLK picker was open. Select the TLK again from the intended tab.");
+                    return;
+                }
+                loadTlkFromPath(*file);
+            });
+#else
+        const auto file = wxui::chooseOpenFile(
+            this,
+            "Load optional dialog.tlk for preview text",
+            kTlkWildcard);
+        if (!file) return;
+        loadTlkFromPath(*file);
+#endif
+    }
+
     void chooseAndOpenSsf(const std::filesystem::path& initialDirectory = {}) {
+#if defined(__EMSCRIPTEN__)
+        wxui::requestOpenFile(
+            this,
+            "Open SSF",
+            kSsfWildcard,
+            initialDirectory,
+            [this](std::optional<std::filesystem::path> file) {
+                if (!file || IsBeingDeleted()) return;
+                try {
+                    openSsfPath(*file);
+                } catch (const std::exception& ex) {
+                    wxui::showError(this, ex);
+                }
+            });
+#else
         try {
             const auto file = wxui::chooseOpenFile(this, "Open SSF", kSsfWildcard, initialDirectory);
             if (!file) return;
@@ -1301,6 +1409,7 @@ private:
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
+#endif
     }
 
     void onOpenSsf(wxCommandEvent&) {
@@ -1319,14 +1428,11 @@ private:
         }
     }
 
-    void onSave(wxCommandEvent&) {
+    void onSave(wxCommandEvent& event) {
         try {
-            if (!saveModifiedTlkIfNeeded()) {
-                return;
-            }
+            if (!saveModifiedTlkIfNeeded()) return;
             if (model().ssfFile().empty() || model().ssfFile().filename() == "new.ssf") {
-                wxCommandEvent dummy(wxEVT_MENU, ID_SaveAs);
-                onSaveAs(dummy);
+                onSaveAs(event);
                 return;
             }
             model().saveSsf(model().ssfFile());

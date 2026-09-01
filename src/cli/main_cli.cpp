@@ -22,7 +22,7 @@ using namespace neossf;
 
 namespace {
 void usage() {
-    std::cout << "NeoSSF " << kNeoSSFVersion << " C++ core utility\n"
+    std::cout << "NeoSSF " << kVersion << " C++ core utility\n"
               << "Usage:\n"
               << "  neossf-cli --dump-ssf <file.ssf> [filter-term]\n"
               << "  neossf-cli --search-ssf <file.ssf> <term>\n"
@@ -234,6 +234,10 @@ int main(int argc, char** argv) {
     try {
         if (argc >= 2 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h" || std::string(argv[1]) == "help")) {
             usage();
+            return 0;
+        }
+        if (argc >= 2 && (std::string(argv[1]) == "--version" || std::string(argv[1]) == "-v" || std::string(argv[1]) == "version")) {
+            std::cout << "NeoSSF " << kVersion << '\n';
             return 0;
         }
         if (argc < 3) {
