@@ -228,6 +228,16 @@ void AppModel::loadSsf(const std::filesystem::path& ssfFile, bool precheckExists
     ssfFile_ = ssfFile;
 }
 
+void AppModel::loadSsfBytes(const std::vector<std::uint8_t>& bytes) {
+    SSFFile loaded; loaded.loadBytes(bytes);
+    entries_ = loaded.entries();
+    extraSsfEntries_ = loaded.extraEntries();
+    soundFiles_ = loaded.soundFiles();
+    if (soundFiles_.size() < entryCount()) soundFiles_.resize(entryCount());
+    ssfFormat_ = loaded.format();
+    ssfFile_.clear();
+}
+
 void AppModel::newSsf() {
     ssfFile_ = "new.ssf";
     ssfFormat_ = SSFFormat::KotOR_V11;

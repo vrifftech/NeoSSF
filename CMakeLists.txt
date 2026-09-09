@@ -3,7 +3,9 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
+if(NOT NEO_HOSTED_BUILD)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
+endif()
 
 set(NEOSHARED_ROOT "" CACHE PATH
     "Path to the neoshared source repository; defaults to ../neoshared")
@@ -39,7 +41,7 @@ neo_read_version_header(NEOSSF_VERSION
     NEOSSF_VERSION_STRING)
 project(NeoSSFCpp VERSION ${NEOSSF_VERSION} DESCRIPTION "C++17/wxWidgets SSF soundset editor" LANGUAGES CXX)
 
-if(MSVC)
+if(MSVC AND NOT NEO_HOSTED_BUILD)
     foreach(_neo_runtime_flag_var IN ITEMS
         CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_C_FLAGS_MINSIZEREL
         CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_MINSIZEREL)
@@ -55,7 +57,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 function(neo_force_static_msvc_runtime target_name)
-    if(MSVC AND TARGET ${target_name})
+    if(MSVC AND NOT NEO_HOSTED_BUILD AND TARGET ${target_name})
         set_property(TARGET ${target_name} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
         target_compile_options(${target_name} PRIVATE
             $<$<CONFIG:Debug>:/MTd>
@@ -121,7 +123,7 @@ option(NEOSSF_REQUIRE_WX_GUI "Fail configure if wxWidgets is unavailable while N
 
 
 function(neossf_link_wx target_name)
-    target_compile_definitions(${target_name} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_definitions(${target_name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 
     set(_wx_targets)
     foreach(_wx_target IN ITEMS wx::core wx::base wx::adv wx::aui wxWidgets::wxWidgets)
@@ -131,21 +133,23 @@ function(neossf_link_wx target_name)
     endforeach()
 
     if(_wx_targets)
-        target_link_libraries(${target_name} PRIVATE ${_wx_targets})
+        target_link_libraries(${target_name} PUBLIC ${_wx_targets})
     else()
         if(wxWidgets_USE_FILE)
             include(${wxWidgets_USE_FILE})
         endif()
-        target_include_directories(${target_name} SYSTEM PRIVATE ${wxWidgets_INCLUDE_DIRS})
-        target_compile_definitions(${target_name} PRIVATE ${wxWidgets_DEFINITIONS})
-        target_link_libraries(${target_name} PRIVATE ${wxWidgets_LIBRARIES})
+        target_include_directories(${target_name} SYSTEM PUBLIC ${wxWidgets_INCLUDE_DIRS})
+        target_compile_definitions(${target_name} PUBLIC ${wxWidgets_DEFINITIONS})
+        target_link_libraries(${target_name} PUBLIC ${wxWidgets_LIBRARIES})
     endif()
 
     neo_force_static_msvc_runtime(${target_name})
 endfunction()
 
 
-if(NEOSSF_BUILD_WX_GUI)
+option(NEOSSF_BUILD_WX_MODULE "Build the reusable editor panel" OFF)
+
+if(NEOSSF_BUILD_WX_GUI OR NEOSSF_BUILD_WX_MODULE)
     set(NEOSSF_WX_COMPONENTS core base adv aui)
     # vcpkg provides CMake package targets such as wx::core and wx::base.
     # Prefer CONFIG mode on Windows/vcpkg, but keep FindwxWidgets/wx-config as
@@ -174,6 +178,20 @@ if(NEOSSF_BUILD_WX_GUI)
     endif()
 
     if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
+        if(NOT EXISTS "${NEOSHARED_ROOT}/wx/NeoModulePanel.hpp")
+            message(FATAL_ERROR "Update NeoShared: reusable editor module API required")
+        endif()
+        add_library(neossf_wx STATIC src/wx/EditorPanel.cpp)
+        add_library(neossf::wx ALIAS neossf_wx)
+        target_include_directories(neossf_wx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        target_link_libraries(neossf_wx PUBLIC neossf_core neoshared::wx)
+        neossf_link_wx(neossf_wx)
+        if(MSVC)
+            target_compile_options(neossf_wx PRIVATE /W4 /permissive-)
+        else()
+            target_compile_options(neossf_wx PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+        if(NEOSSF_BUILD_WX_GUI)
         set(NEOSSF_WX_SOURCES src/wx/main.cpp)
         if(WIN32)
             neo_configure_windows_version_resource(
@@ -201,7 +219,7 @@ if(NEOSSF_BUILD_WX_GUI)
             SLUG "neossf"
             ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.svg"
         )
-        target_link_libraries(NeoSSF PRIVATE neossf_core)
+        target_link_libraries(NeoSSF PRIVATE neossf_wx)
         target_include_directories(NeoSSF PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
         target_link_libraries(NeoSSF PRIVATE neoshared::wx)
         neossf_link_wx(NeoSSF)
@@ -228,6 +246,7 @@ if(NEOSSF_BUILD_WX_GUI)
                 DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications
             )
         endif()
+        endif() # standalone wrapper
     elseif(NEOSSF_REQUIRE_WX_GUI)
         message(FATAL_ERROR "wxWidgets was not found, but NEOSSF_REQUIRE_WX_GUI is ON. On Windows, install the pinned wxWidgets 3.3.3 overlay with ../neoshared/scripts/install-wxwidgets.ps1 and configure with the vcpkg toolchain. On Debian or Ubuntu, install libwxgtk3.2-dev.")
     else()

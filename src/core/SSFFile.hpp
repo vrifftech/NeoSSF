@@ -3,6 +3,7 @@
 #include "core/CoreTypes.hpp"
 
 #include <array>
+#include <istream>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -37,6 +38,7 @@ public:
     explicit SSFFile(const std::filesystem::path& filename);
 
     void load(const std::filesystem::path& filename);
+    void loadBytes(const std::vector<std::uint8_t>& bytes);
     void save(const std::filesystem::path& filename = {});
     void newFile(const std::filesystem::path& filename);
     void reset();
@@ -63,11 +65,12 @@ public:
     void setFormat(SSFFormat format) noexcept;
 
 private:
+    void loadStream(std::istream& in, const std::filesystem::path& name, std::uintmax_t size);
     UInt32 entryValue(std::size_t zeroBasedIndex) const;
     void setEntryValue(std::size_t zeroBasedIndex, UInt32 value);
     void ensureSoundFileCount(std::size_t count);
-    void loadKotORV11(std::ifstream& in, const std::filesystem::path& filename, std::uintmax_t size, UInt32 offset);
-    void loadNwnResRefFormat(std::ifstream& in, const std::filesystem::path& filename, std::uintmax_t size,
+    void loadKotORV11(std::istream& in, const std::filesystem::path& filename, std::uintmax_t size, UInt32 offset);
+    void loadNwnResRefFormat(std::istream& in, const std::filesystem::path& filename, std::uintmax_t size,
                              UInt32 entryCount, UInt32 offsetTable, std::size_t soundFileLen, SSFFormat format);
     void writeKotORV11(std::ostream& out) const;
     void writeNwnResRefFormat(std::ostream& out, SSFFormat format) const;

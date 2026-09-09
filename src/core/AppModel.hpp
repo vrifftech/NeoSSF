@@ -40,6 +40,7 @@ public:
     ResEntry getTlkString(UInt32 strRef) const;
     void loadTlk(const std::filesystem::path& tlkFile);
     void loadSsf(const std::filesystem::path& ssfFile, bool precheckExists = true);
+    void loadSsfBytes(const std::vector<std::uint8_t>& bytes);
     void newSsf();
     void modifySlot(std::size_t oneBasedRow, const std::string& strRefText);
     void modifySoundFile(std::size_t oneBasedRow, const std::string& soundFile);

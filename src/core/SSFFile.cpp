@@ -58,7 +58,7 @@ bool isNwn2V11Layout(std::uintmax_t size, UInt32 entryCount, UInt32 offsetTable)
     return minimum <= size;
 }
 
-void seekTo(std::ifstream& in, UInt32 offset, const std::filesystem::path& filename) {
+void seekTo(std::istream& in, UInt32 offset, const std::filesystem::path& filename) {
     in.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
     if (!in) {
         throw SSFError("Unable to seek within SSF file \"" + filename.string() + "\".", 1);
@@ -182,7 +182,7 @@ void SSFFile::setEntryValue(std::size_t zeroBasedIndex, UInt32 value) {
     extraEntries_[extra] = value;
 }
 
-void SSFFile::loadKotORV11(std::ifstream& in, const std::filesystem::path& filename, std::uintmax_t size, UInt32 offset) {
+void SSFFile::loadKotORV11(std::istream& in, const std::filesystem::path& filename, std::uintmax_t size, UInt32 offset) {
     if (offset > size || ((size - offset) % sizeof(UInt32)) != 0u) {
         throw SSFError("Selected file \"" + filename.string() + "\" is not a valid KotOR/KotOR2 SSF V1.1 file.", 1);
     }
@@ -203,7 +203,7 @@ void SSFFile::loadKotORV11(std::ifstream& in, const std::filesystem::path& filen
     format_ = SSFFormat::KotOR_V11;
 }
 
-void SSFFile::loadNwnResRefFormat(std::ifstream& in, const std::filesystem::path& filename, std::uintmax_t size,
+void SSFFile::loadNwnResRefFormat(std::istream& in, const std::filesystem::path& filename, std::uintmax_t size,
                                   UInt32 entryCount32, UInt32 offsetTable, std::size_t soundFileLen, SSFFormat format) {
     if (entryCount32 == 0 || entryCount32 > kMaxReasonableSsfEntries) {
         throw SSFError("SSF file has an invalid entry count: " + std::to_string(entryCount32), 1);
@@ -249,6 +249,20 @@ void SSFFile::load(const std::filesystem::path& filename) {
         throw std::runtime_error("Unable to open selected file \"" + filename.string() + "\".");
     }
 
+    SSFFile parsed;
+    parsed.loadStream(in, filename, size);
+    *this = std::move(parsed);
+}
+
+void SSFFile::loadBytes(const std::vector<std::uint8_t>& bytes) {
+    if (bytes.size() < kKotORSsfHeaderSize) throw SSFError("Truncated SSF snapshot.");
+    std::istringstream input(std::string(bytes.begin(), bytes.end()), std::ios::in | std::ios::binary);
+    SSFFile parsed;
+    parsed.loadStream(input, {}, bytes.size());
+    *this = std::move(parsed);
+}
+
+void SSFFile::loadStream(std::istream& in, const std::filesystem::path& filename, std::uintmax_t size) {
     const FourCC fileType = binary::readFourCC(in, "SSF file type");
     const FourCC fileVersion = binary::readFourCC(in, "SSF file version");
     if (fileType != makeFourCC("SSF ")) {
