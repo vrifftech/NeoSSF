@@ -86,6 +86,12 @@ endif()
 
 if(NEOSSF_BUILD_CLI)
     add_executable(neossf-cli src/cli/main_cli.cpp)
+    neo_add_windows_version_resource(neossf-cli
+        VERSION "${PROJECT_VERSION}"
+        PRODUCT_NAME "NeoSSF"
+        FILE_DESCRIPTION "NeoSSF command-line soundset editor"
+        INTERNAL_NAME "neossf-cli"
+        ORIGINAL_FILENAME "neossf-cli.exe")
     target_link_libraries(neossf-cli PRIVATE neossf_core)
     if(NOT MSVC)
         target_compile_options(neossf-cli PRIVATE -Wall -Wextra -Wpedantic)
@@ -170,21 +176,19 @@ if(NEOSSF_BUILD_WX_GUI OR NEOSSF_BUILD_WX_MODULE)
         if(NEOSSF_BUILD_WX_GUI)
         set(NEOSSF_WX_SOURCES src/wx/main.cpp)
         if(WIN32)
-            neo_configure_windows_version_resource(
-                NEOSSF_WX_SOURCES_RC
-                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.rc.in"
-                "neossf.rc"
-                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.ico")
-            list(APPEND NEOSSF_WX_SOURCES "${NEOSSF_WX_SOURCES_RC}")
-        endif()
-
-        if(WIN32)
             add_executable(NeoSSF WIN32 ${NEOSSF_WX_SOURCES})
         elseif(APPLE)
             add_executable(NeoSSF MACOSX_BUNDLE ${NEOSSF_WX_SOURCES})
         else()
             add_executable(NeoSSF ${NEOSSF_WX_SOURCES})
         endif()
+        neo_add_windows_version_resource(NeoSSF
+            VERSION "${PROJECT_VERSION}"
+            PRODUCT_NAME "NeoSSF"
+            FILE_DESCRIPTION "NeoSSF SSF soundset editor"
+            INTERNAL_NAME "NeoSSF"
+            ORIGINAL_FILENAME "NeoSSF.exe"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.ico")
         neo_configure_macos_bundle(NeoSSF
             NAME "NeoSSF"
             IDENTIFIER "com.vrifftech.neossf"
