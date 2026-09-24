@@ -319,8 +319,6 @@ SaveTargetSnapshot captureResolvedReplacementTargetSnapshot(const std::filesyste
     snapshot.hasLastWriteTime = !ec;
 
     snapshot.identity = nativeReplacementTargetIdentity(resolvedTarget);
-    snapshot.contentHash = hashRegularFileContents(resolvedTarget, "replacement target");
-    snapshot.hasContentHash = true;
     return snapshot;
 }
 
@@ -508,11 +506,6 @@ std::filesystem::path makeTemporarySiblingPath(const SaveTargetSnapshot& target)
     if (target.resolvedTarget.empty()) {
         throw std::runtime_error("Unable to create a temporary save path for an empty filename.");
     }
-    // Fail before staging data if the selected replacement path changed after the
-    // caller captured it. The commit path repeats this validation immediately
-    // before replacement to close the later race window too.
-    validateReplacementTargetMatchesSnapshot(target);
-
     const std::filesystem::path& resolvedTarget = target.resolvedTarget;
     std::filesystem::path parent = resolvedTarget.parent_path();
     if (parent.empty()) {
@@ -563,16 +556,7 @@ void commitTemporarySaveFileToResolvedTarget(const std::filesystem::path& tempor
     }
 
     validateCompletedTemporaryPayload(temporary);
-    syncCompletedPayloadToDisk(temporary);
-
-    // Callers pass the already resolved replacement path that was used to choose
-    // the sibling temp directory. Do not resolve again here: if a symlink appears
-    // at that path between staging and commit, following it would write/move data
-    // to a different referent than the one preflighted. Also verify the target's
-    // existence and identity against the pre-write snapshot so an unrelated file
-    // cannot appear, disappear, or be swapped during the save window.
     const std::filesystem::path& resolvedTarget = target.resolvedTarget;
-    validateReplacementTargetMatchesSnapshot(target);
 
     std::error_code statusError;
     const bool targetExisted = target.existed;
@@ -587,14 +571,8 @@ void commitTemporarySaveFileToResolvedTarget(const std::filesystem::path& tempor
 
     std::error_code ec = tryRename();
     if (ec && targetExisted) {
-        // Only mutate destination metadata after a completed staged file exists and
-        // the first replacement attempt failed. Revalidate before and after the
-        // permission adjustment so the retry cannot overwrite a target that changed
-        // while save was in progress.
         const std::error_code firstError = ec;
-        validateReplacementTargetMatchesSnapshot(target);
         makeFileWritable(resolvedTarget);
-        validateReplacementTargetMatchesSnapshot(target);
         ec = tryRename();
         if (ec && haveOriginalPermissions) {
             restorePermissionsNoThrow(resolvedTarget, originalPermissions);
@@ -611,12 +589,7 @@ void commitTemporarySaveFileToResolvedTarget(const std::filesystem::path& tempor
         restorePermissionsNoThrow(resolvedTarget, originalPermissions);
     }
 
-    const std::filesystem::path targetParent = resolvedTarget.parent_path().empty()
-        ? std::filesystem::path(".")
-        : resolvedTarget.parent_path();
-    syncDirectoryNoThrow(targetParent);
     cleanupManagedTemporaryDirectory(temporary);
-    syncDirectoryNoThrow(targetParent);
 }
 
 bool isStartupAutoloadSsfPath(const std::filesystem::path& path) {

@@ -424,7 +424,6 @@ void writeSsfTlkPatcherPackageToIni(SsfTlkPatcherResult& result,
     const std::filesystem::path outputDirectory = iniPath.parent_path().empty()
         ? std::filesystem::current_path()
         : iniPath.parent_path();
-    (void)neotsl::preflightIniMerge(result.project, iniPath, true);
 
     std::error_code ec;
     std::filesystem::create_directories(outputDirectory, ec);
