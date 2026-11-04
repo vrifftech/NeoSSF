@@ -6,6 +6,11 @@ NeoSSF is a SSF/TLK editor for several Aurora/Odyssey engine games.
 
 NeoSSF owns SSF editing and SSF/TLK patch-package logic. Native TLK parsing, editing, encoding, and save behavior come from the shared `neoshared::tlk` target.
 
+
+Support is offered in the OpenKotOR Discord.
+
+[![OpenKotOR Discord](https://discordapp.com/api/guilds/739590575359262792/widget.png?style=banner2)](https://discord.gg/OpenKotOR)
+
 ## Build
 
 This repository consumes shared code from the separate `neoshared` repository. Clone the repositories as siblings:
