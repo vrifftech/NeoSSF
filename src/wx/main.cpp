@@ -37,7 +37,7 @@ private:
 };
 class NeoSSFApp final:public wxApp {
 public:bool OnInit()override {
-    SetAppName("NeoSSF");SetVendorName("Neo Tools");wxInitAllImageHandlers();
+    SetAppName("NeoSSF");SetVendorName("Neo Tools");wxui::initializeTheme("NeoSSF");wxInitAllImageHandlers();
     auto* frame=new NeoSSFFrame;frame->Show();
     if(argc>1){const auto path=neosettings::pathFromWx(wxString(argv[1]));frame->CallAfter([frame,path]{frame->openStartup(path);});}
     return true;
