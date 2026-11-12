@@ -1,6 +1,6 @@
 #pragma once
 
-#define NEOSSF_VERSION_STRING "1.2.3"
+#define NEOSSF_VERSION_STRING "1.2.4"
 
 namespace neossf {
 
