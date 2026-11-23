@@ -199,6 +199,7 @@ if(NEOSSF_BUILD_WX_GUI OR NEOSSF_BUILD_WX_MODULE)
             SLUG "neossf"
             ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neossf.svg"
         )
+        neo_enable_updates(NeoSSF "NeoSSF" "${PROJECT_VERSION}")
         target_link_libraries(NeoSSF PRIVATE neossf_wx)
         target_include_directories(NeoSSF PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
         target_link_libraries(NeoSSF PRIVATE neoshared::wx)
