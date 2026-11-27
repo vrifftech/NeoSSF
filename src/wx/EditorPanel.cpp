@@ -243,7 +243,7 @@ public:
     void setAppearance(bool dark, double scale) override { darkMode_=dark; fontScale_=scale; applyDarkMode(); }
     bool canClose() override { return confirmCloseAllTabs(); }
 
-    bool openFile(const std::filesystem::path& path) override { openSsfPath(path); return true; }
+    bool openFile(const std::filesystem::path& path) override { if (!commitPending()) return false; openSsfPath(path); return true; }
     AppModel* activeModel() override { return hasActiveDocument() ? activeDocument().model.get() : nullptr; }
     void refreshActiveModel() override { if(hasActiveDocument()){markDocumentDirty();refreshAll();} }
     std::vector<std::filesystem::path> openPaths() const override {
@@ -254,6 +254,7 @@ public:
         return result;
     }
     bool openResource(neoshared::ResourceDocument input) override {
+        if (!commitPending()) return false;
         if (activateResource(input.identity)) return true;
         auto loaded=neossf::ResourceDocument::load(std::move(input));
         ensureDocumentTabForOpen(); auto& document=activeDocument();
@@ -276,10 +277,11 @@ public:
         setFilterTerm({}); refreshAll(); grid_->SetFocus(); return true;
     }
     bool saveActiveAs(const std::filesystem::path& path) override {
+        if (!commitPending()) return false;
         if (!hasActiveDocument() || path.empty()) return false;
         checkDestination(path);
         if (!saveModifiedTlkIfNeeded()) return false;
-        model().saveSsf(path); markDocumentClean(); rememberRecentFile(path); refreshAll(); return true;
+        model().saveSsf(path); activeDocument().resourceIdentity.clear(); markDocumentClean(); rememberRecentFile(path); refreshAll(); return true;
     }
 
 private:
@@ -324,7 +326,8 @@ private:
     const std::string& tlkAutoLoadWarning() const { return activeDocument().tlkAutoLoadWarning; }
 
     bool tabDirty(const DocumentTab& tab) const {
-        return tab.dirty || (tab.model && tab.model->tlkModified());
+        return tab.dirty || (tab.model && tab.model->tlkModified()) ||
+            (hasActiveDocument() && &tab == &activeDocument() && hasPending());
     }
 
     std::string tabDisplayName(const DocumentTab& tab) const {
@@ -350,6 +353,7 @@ private:
     }
 
     void selectDocumentTab(std::size_t index) {
+        if (!commitPending()) return;
         if (documentTabs_ == nullptr || index >= documents_.size()) return;
         tabSwitchInProgress_ = true;
         const bool selected = neotabs::changeSelectionToPage(documentTabs_, documents_[index].tabPage);
@@ -403,11 +407,12 @@ private:
 
     bool confirmCloseDocumentTab(std::size_t index) {
         if(index>=documents_.size() || !tabDirty(documents_[index]))return true;
-        selectDocumentTab(index);
+        if (index != activeDocumentIndex_) selectDocumentTab(index);
+        if (index != activeDocumentIndex_) return false;
         const int answer=wxMessageBox(wxui::toWx("Save changes to "+tabDisplayName(documents_[index])+"?"),
             "Close document",wxYES_NO|wxCANCEL|wxICON_QUESTION,this);
         if(answer==wxCANCEL)return false;
-        if(answer==wxNO)return true;
+        if(answer==wxNO){discardPending();refreshAll();updateActiveTabTitle();return true;}
         wxCommandEvent event;onSave(event);
         return !tabDirty(documents_[index]);
     }
@@ -415,6 +420,7 @@ private:
     bool closeDocumentTab(std::size_t index) {
         if (index >= documents_.size() || !confirmCloseDocumentTab(index)) return false;
 
+        if (index == activeDocumentIndex_) discardPending();
         wxWindow* const page = documents_[index].tabPage;
         tabSwitchInProgress_ = true;
         const bool deleted = neotabs::deleteTabPage(documentTabs_, page);
@@ -436,8 +442,10 @@ private:
     }
 
     bool confirmCloseAllTabs() {
+        const auto active = activeDocumentIndex_;
+        if (!confirmCloseDocumentTab(active)) return false;
         for (std::size_t i = 0; i < documents_.size(); ++i) {
-            if (!confirmCloseDocumentTab(i)) return false;
+            if (i != active && !confirmCloseDocumentTab(i)) return false;
         }
         return true;
     }
@@ -616,6 +624,7 @@ private:
     }
 
     void openSsfPath(const std::filesystem::path& path) {
+        if (!commitPending()) return;
         if (path.empty()) return;
         for(std::size_t i=0;i<documents_.size();++i)
             if(neoshared::sameResourcePath(path,documents_[i].model->ssfFile())) { selectDocumentTab(i);return; }
@@ -765,6 +774,14 @@ private:
         grid_->Bind(wxEVT_GRID_SELECT_CELL, &NeoSSFPanelImpl::onGridSelected, this);
         grid_->Bind(wxEVT_GRID_LABEL_LEFT_CLICK, &NeoSSFPanelImpl::onGridLabelClicked, this);
         grid_->Bind(wxEVT_GRID_LABEL_RIGHT_CLICK, &NeoSSFPanelImpl::onGridLabelRightClick, this);
+        Bind(wxEVT_MENU, [this](wxCommandEvent& event) {
+            if (event.GetId() == ID_CloseTab || event.GetId() == ID_CloseOtherTabs ||
+                event.GetId() == ID_ModuleExit || commitPending()) event.Skip();
+        });
+        for(auto* field:{strRef_,directSound_})field->Bind(wxEVT_TEXT,[this](wxCommandEvent& event){updateActiveTabTitle();event.Skip();});
+        documentTabs_->Bind(wxEVT_AUINOTEBOOK_PAGE_CHANGING, [this](wxAuiNotebookEvent& event) {
+            if (!tabSwitchInProgress_ && !commitPending()) event.Veto(); else event.Skip();
+        });
         documentTabs_->Bind(wxEVT_AUINOTEBOOK_PAGE_CHANGED, &NeoSSFPanelImpl::onDocumentTabChanged, this);
         documentTabs_->Bind(wxEVT_AUINOTEBOOK_PAGE_CLOSE, &NeoSSFPanelImpl::onDocumentTabCloseRequested, this);
     }
@@ -775,11 +792,13 @@ private:
     }
 
     void onGridSelected(wxGridEvent& event) {
+        if (!commitPending()) { event.Veto(); return; }
         selectVisibleRow(event.GetRow());
         event.Skip();
     }
 
     void onGridLabelClicked(wxGridEvent& event) {
+        if (!commitPending()) { event.Veto(); return; }
         if (event.GetRow() >= 0) {
             selectVisibleRow(event.GetRow());
         }
@@ -1036,6 +1055,7 @@ private:
     }
 
     void onFilterText(wxCommandEvent&) {
+        if (!commitPending()) return;
         viewState().filterTerm = filterText_ ? wxui::toStd(filterText_->GetValue()) : std::string();
         refreshAll();
     }
@@ -1514,6 +1534,7 @@ private:
     }
 
     void onSave(wxCommandEvent& event) {
+        if (!commitPending()) return;
         try {
             if (!saveModifiedTlkIfNeeded()) return;
             if (model().ssfFile().empty()) {
@@ -1521,7 +1542,7 @@ private:
                 return;
             }
             checkDestination(model().ssfFile());
-            model().saveSsf(model().ssfFile());
+            model().saveSsf(model().ssfFile()); activeDocument().resourceIdentity.clear();
             markDocumentClean();
             rememberRecentFile(model().ssfFile());
             neogames::resolver().inferFromOpenedPath(model().ssfFile());
@@ -1532,6 +1553,7 @@ private:
     }
 
     void onSaveAs(wxCommandEvent&) {
+        if (!commitPending()) return;
         try {
             if (!saveModifiedTlkIfNeeded()) {
                 return;
@@ -1540,7 +1562,7 @@ private:
             const auto file = wxui::chooseSaveFile(this, "Save SSF as", kSsfWildcard, defaultName);
             if (!file) return;
             checkDestination(*file);
-            model().saveSsf(*file);
+            model().saveSsf(*file); activeDocument().resourceIdentity.clear();
             model().setSsfFile(*file);
             markDocumentClean();
             rememberRecentFile(*file);
@@ -1551,19 +1573,35 @@ private:
         }
     }
 
-    void onModify(wxCommandEvent&) {
+    bool hasPending() const {
+        return strRef_ && directSound_ && (strRef_->IsModified() || directSound_->IsModified());
+    }
+
+    void discardPending() {
+        strRef_->DiscardEdits();
+        directSound_->DiscardEdits();
+    }
+
+    bool commitPending() {
+        if (!hasPending()) return true;
         try {
-            if (viewState().selectedLogicalRow < 0) {
-                throw std::runtime_error("Select a soundset row first.");
-            }
-            const std::size_t oneBased = static_cast<std::size_t>(viewState().selectedLogicalRow) + 1;
+            const auto oneBased = static_cast<std::size_t>(viewState().selectedLogicalRow) + 1;
             model().modifySlot(oneBased, wxui::toStd(strRef_->GetValue()));
             model().modifySoundFile(oneBased, wxui::toStd(directSound_->GetValue()));
+            discardPending();
             markDocumentDirty();
-            refreshAll();
+            const int row=visibleRowForActual(oneBased-1);
+            if(row>=0)for(int col=0;col<grid_->GetNumberCols();++col)
+                grid_->SetCellValue(row,col,wxui::toWx(ssfCellText(oneBased-1,actualColumnForVisible(col))));
+            return true;
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
+            return false;
         }
+    }
+
+    void onModify(wxCommandEvent&) {
+        if (commitPending()) refreshAll();
     }
 
     void onAddTlkEntry(wxCommandEvent&) {
